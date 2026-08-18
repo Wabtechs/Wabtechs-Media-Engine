@@ -1,0 +1,103 @@
+services:
+  media-api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/media_engine
+      - REDIS_URL=redis://redis:6379
+      - STORAGE_PROVIDER=local
+      - STORAGE_LOCAL_PATH=/app/storage
+      - CDN_BASE_URL=http://localhost:9000/media-engine
+      - API_KEY_SALT=wabtechs-media-engine-salt-change-in-production
+      - MAX_UPLOAD_SIZE_MB=50
+      - RATE_LIMIT_MAX=100
+      - RATE_LIMIT_WINDOW_MS=60000
+      - BACKGROUND_REMOVAL_PROVIDER=local
+      - IMAGE_PROCESSING_CONCURRENCY=4
+      - WORKER_CONCURRENCY=2
+    volumes:
+      - media-storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["tsx", "src/server.ts"]
+
+  media-worker:
+    build: .
+    environment:
+      - PORT=3001
+      - HOST=0.0.0.0
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/media_engine
+      - REDIS_URL=redis://redis:6379
+      - STORAGE_PROVIDER=local
+      - STORAGE_LOCAL_PATH=/app/storage
+      - CDN_BASE_URL=http://localhost:9000/media-engine
+      - API_KEY_SALT=wabtechs-media-engine-salt-change-in-production
+      - IMAGE_PROCESSING_CONCURRENCY=4
+      - WORKER_CONCURRENCY=2
+    volumes:
+      - media-storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["tsx", "src/workers/index.ts"]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=media_engine
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d media_engine"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  redis-data:
+  media-storage:
+  minio-data:
